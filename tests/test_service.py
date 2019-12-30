@@ -10,13 +10,16 @@ def _client_exists(srv, client):
 
 
 class Tests(TestCase):
+    service: Service
 
-    def setUp(self):
-        self.service = Service()
-        self.service.start()
+    @classmethod
+    def setUpClass(cls):
+        cls.service = Service()
+        cls.service.start()
 
-    def tearDown(self):
-        self.service.stop()
+    @classmethod
+    def tearDownClass(cls):
+        cls.service.stop()
 
     def test_start(self):
         pass
