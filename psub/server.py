@@ -6,7 +6,7 @@ from threading import Thread
 from typing import Dict, List, Set
 from uuid import uuid4
 
-from ._protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, err, ok, parse_command
+from ._protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, UTF8, err, ok, parse_command
 from .client import Client
 
 LOGGER = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ class Service:
                 break
             command = parse_command(data)
             response = err(b"Unknown command", command.command)
-            topic = command.topic.decode("utf-8")
+            topic = command.topic.decode(UTF8)
             if command.command == CMD_SUB:
                 response = self.__handle_sub(topic, _uuid)
             elif command.command == CMD_UNSUB:

@@ -2,7 +2,7 @@ import logging
 from multiprocessing.connection import Connection
 from typing import Generator
 
-from ._protocol import ERR, parse_command, pub, sub, unsub
+from ._protocol import ERR, UTF8, parse_command, pub, sub, unsub
 
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
@@ -49,7 +49,7 @@ class Client:
                 continue
             try:
                 message = self._connection.recv_bytes()
-                yield message.decode("utf8")
+                yield message.decode(UTF8)
             except UnicodeDecodeError:
                 LOGGER.exception("Can't decode message")
             except EOFError:

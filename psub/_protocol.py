@@ -1,14 +1,14 @@
 """Implementation of internal client-server protocol"""
 from typing import AnyStr, Iterable, List, NamedTuple
 
-_UTF8 = "utf-8"
+UTF8 = "utf-8"
 
 
 def _convert_to_bytes(*args: Iterable[AnyStr]) -> List[bytes]:
     b_args = []
     for arg in args:
         if isinstance(arg, str):
-            b_args.append(arg.encode(_UTF8))
+            b_args.append(arg.encode(UTF8))
         elif isinstance(arg, bytes):
             b_args.append(arg)
         else:
@@ -47,13 +47,13 @@ def pub(topic: AnyStr, data: AnyStr):
 
 def sub(topic: AnyStr):
     if isinstance(topic, str):
-        topic = topic.encode(_UTF8)
+        topic = topic.encode(UTF8)
     return build_message(CMD_SUB, topic)
 
 
 def unsub(topic: AnyStr):
     if isinstance(topic, str):
-        topic = topic.encode(_UTF8)
+        topic = topic.encode(UTF8)
     return build_message(CMD_UNSUB, topic)
 
 
