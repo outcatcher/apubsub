@@ -1,6 +1,7 @@
+import sys
 from multiprocessing import Process
 from threading import Thread
-from unittest import TestCase
+from unittest import TestCase, skipIf
 
 from psub.server import Service
 
@@ -9,7 +10,7 @@ def _client_exists(srv, client):
     assert srv.client_registered(client)
 
 
-class Tests(TestCase):
+class TestClient(TestCase):
     service: Service
 
     @classmethod
@@ -20,6 +21,9 @@ class Tests(TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.service.stop()
+
+
+class TestClientRegistration(TestClient):
 
     def test_start(self):
         pass
@@ -38,6 +42,7 @@ class Tests(TestCase):
         t1.join(2)
         t2.join(2)
 
+    @skipIf(sys.platform == "win32", reason="Subprocessed clients are not working properly on windows")
     def test_subprocessed_client(self):
         cli1 = self.service.get_client()
         cli2 = self.service.get_client()
