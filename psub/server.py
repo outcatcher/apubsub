@@ -3,10 +3,10 @@ import time
 from multiprocessing import Event, Lock, Pipe, Process, synchronize
 from multiprocessing.connection import Connection
 from threading import Thread
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Union
 from uuid import uuid4
 
-from ._protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, UTF8, err, ok, parse_command
+from ._protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, UTF8, data_message, err, ok, parse_command
 from .client import Client
 
 LOGGER = logging.getLogger(__name__)
@@ -22,13 +22,20 @@ class Service:
     __topics: Dict[str, Set[str]]
     __clients: Dict[str, Connection]
     __cl_threads: List[Thread]
-    _service_p: Process
+    _service_p: Union[Thread, Process]
 
-    def __init__(self):
+    def __init__(self, process_based=False):
+        """Create new service instance.
+
+        If ``process_based`` is ``True``, will start new process.
+        Otherwise service will be run as Thread
+        """
+
         self.__clients = {}
         self.__topics = {}
         self.__cl_threads = []
-        self._service_p = Process(target=self._start)
+        meth, name = (Process, "Process") if process_based else (Thread, "Thread")
+        self._service_p = meth(target=self._start, name=f"Service{name}")
 
     def get_client(self) -> Client:
         """Get new client instance for running server"""
@@ -46,7 +53,7 @@ class Service:
         if not self.__run_lock.acquire(block=False):
             raise RuntimeError("Lock is currently acquired by other process")
         _topics = {}
-        while not self.__stop:
+        while not self.__stop.is_set():
             time.sleep(0.1)
         self.__run_lock.release()
 
@@ -85,7 +92,7 @@ class Service:
         for client in subscribed_clients:
             connection = self.__clients[client]
             if not connection.closed:
-                connection.send_bytes(data)
+                connection.send_bytes(data_message(data))
         return ok(CMD_PUB, topic)
 
     def __handle_client(self, _uuid):
@@ -102,7 +109,6 @@ class Service:
                 LOGGER.warning("Server connection is closed, stopping client")
                 break
             command = parse_command(data)
-            response = err(b"Unknown command", command.command)
             topic = command.topic.decode(UTF8)
             if command.command == CMD_SUB:
                 response = self.__handle_sub(topic, _uuid)
@@ -110,6 +116,8 @@ class Service:
                 response = self.__handle_unsub(topic, _uuid)
             elif command.command == CMD_PUB:
                 response = self.__handle_pub(topic, command.data)
+            else:
+                response = err(b"Unknown command", command.command)
             connection.send_bytes(response)
         connection.close()
 
@@ -120,6 +128,7 @@ class Service:
         self.__cl_threads.append(thr)
 
     def start(self):
+        self.__stop.clear()
         self._service_p.start()
         LOGGER.info("Service process started")
 
@@ -129,3 +138,7 @@ class Service:
         for thr in self.__cl_threads:
             thr.join()
         LOGGER.info("Service process stopped")
+
+    @property
+    def running(self):
+        return not self.__stop.is_set()
