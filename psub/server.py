@@ -92,11 +92,10 @@ class Service:
         connection = self.__clients[_uuid]
         while not self.__stop.is_set():
             try:
-                ready = connection.poll(0.1)
+                if not connection.poll(1):
+                    continue
             except BrokenPipeError:
                 break
-            if not ready:
-                continue
             try:
                 data = connection.recv_bytes()
             except EOFError:
