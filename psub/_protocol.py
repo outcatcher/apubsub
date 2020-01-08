@@ -1,5 +1,5 @@
 """Implementation of internal client-server protocol"""
-from typing import AnyStr, Iterable, List, NamedTuple
+from typing import AnyStr, Iterable, List, NamedTuple, Optional, Tuple
 
 UTF8 = "utf-8"
 DIVIDER = b"::"
@@ -24,9 +24,9 @@ CMD_SUB = b"SUB"
 CMD_UNSUB = b"USUB"
 
 
-def build_message(command: AnyStr, data: AnyStr) -> bytes:
-    command, data = _convert_to_bytes(command, data)
-    return b"::".join([command, data])
+def build_message(cmd: AnyStr, data: AnyStr) -> bytes:
+    cmd, data = _convert_to_bytes(cmd, data)
+    return b"::".join([cmd, data])
 
 
 class ParsedMessage(NamedTuple):
@@ -41,29 +41,18 @@ class ParsingError(Exception):
 
 def parse_command(message: bytes) -> ParsedMessage:
     """Parse <command>::<topic>[,data] string as command"""
-    command, data = message.split(DIVIDER, 1)
+    cmd, data = message.split(DIVIDER, 1)
     topic, *data = data.split(b",", 1)
-    return ParsedMessage(command, topic, *data)
+    return ParsedMessage(cmd, topic, *data)
 
 
-def pub(topic: AnyStr, data: AnyStr):
-    """Publish data to existing topic message"""
-
-    return build_message(CMD_PUB, b",".join(_convert_to_bytes(topic, data)))
-
-
-def sub(topic: AnyStr):
-    """Subscribe to topic message"""
-    if isinstance(topic, str):
-        topic = topic.encode(UTF8)
-    return build_message(CMD_SUB, topic)
-
-
-def unsub(topic: AnyStr):
-    """Unsubscribe from topic message"""
-    if isinstance(topic, str):
-        topic = topic.encode(UTF8)
-    return build_message(CMD_UNSUB, topic)
+def command(cmd: AnyStr, topic: AnyStr, data: Optional[AnyStr] = None):
+    """Command message, e.g. b'SUB::topic,data'"""
+    cmd, topic = _convert_to_bytes(cmd, topic)
+    if data is None:
+        return build_message(cmd, topic)
+    data = _convert_to_bytes(data)[0]
+    return build_message(cmd, topic + SUB_SEPARATOR + data)
 
 
 # Response from server to clients
@@ -71,6 +60,7 @@ def unsub(topic: AnyStr):
 OK = b"OK"
 ERR = b"ERR"
 DATA = b"DATA"
+SUB_SEPARATOR = b","
 
 
 def data_message(message: bytes) -> bytes:
@@ -83,15 +73,22 @@ def get_data(message: bytes) -> bytes:
     return message[len(DATA) + len(DIVIDER):]
 
 
-def ok(*args: AnyStr) -> bytes:
+def parse_cmd_response(message: bytes) -> Tuple[bytes, ParsedMessage]:
+    verdict, data = message.split(DIVIDER)
+    cmd, topic, *other = data.split(SUB_SEPARATOR, 2)
+    data = ParsedMessage(cmd, topic, other)
+    return verdict, data
+
+
+def ok(cmd, topic, *args: AnyStr) -> bytes:
     """Message processed"""
-    message = b",".join(_convert_to_bytes(*args))
+    message = SUB_SEPARATOR.join(_convert_to_bytes(cmd, topic, *args))
     return OK + DIVIDER + message
 
 
-def err(*args: AnyStr) -> bytes:
+def err(cmd, topic, *args: AnyStr) -> bytes:
     """Error during message processing"""
-    message = b",".join(_convert_to_bytes(*args))
+    message = SUB_SEPARATOR.join(_convert_to_bytes(cmd, topic, *args))
     return ERR + DIVIDER + message
 
 

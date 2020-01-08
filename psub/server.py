@@ -92,7 +92,7 @@ class Service:
         for client in subscribed_clients:
             connection = self.__clients[client]
             if not connection.closed:
-                connection.send_bytes(data_message(data))
+                connection.send_bytes(data_message(data) + b"\00")
         return ok(CMD_PUB, topic)
 
     def __handle_client(self, _uuid):

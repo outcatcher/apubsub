@@ -1,6 +1,7 @@
 import random
 import string
 import sys
+import time
 from multiprocessing import Process
 from threading import Thread
 from unittest import TestCase, skipIf
@@ -10,7 +11,8 @@ from psub.server import Service
 
 
 def _rand_str():
-    return "".join(random.choice(string.printable) for _ in range(10))
+    r_string = "".join(random.choice(string.printable) for _ in range(10))
+    return r_string
 
 
 def _client_exists(srv, client):
@@ -84,7 +86,7 @@ class TestSubscription(TestService):
 
     def test_receive_generator(self):
         count = random.randrange(5)
-        topic = "TOPIC"
+        topic = _rand_str()
         pub = self.service.get_client()
         sub = self.service.get_client()
         sub.subscribe(topic)
@@ -95,6 +97,7 @@ class TestSubscription(TestService):
         thr.start()
         for data in generated:
             pub.publish(topic, data)
+        time.sleep(0.5)
         sub.stop_receiving()
         thr.join()
         self.assertListEqual(received, generated)
@@ -120,6 +123,34 @@ class TestSubscription(TestService):
 
         self.assertListEqual(s1_data, [data, data2])
         self.assertListEqual(s2_data, [data, None])
+
+    def test_control_data_mix(self):
+        sub = self.service.get_client()
+        pub = self.service.get_client()
+
+        topic = _rand_str()
+        sub.subscribe(topic)
+
+        sent = _rand_str()
+        pub.publish(topic, sent)
+        sub.subscribe("topic2")
+        time.sleep(0.1)
+
+        received = sub.receive_single()
+        self.assertEqual(received, sent)
+
+    def test_receive_sub_separated_data(self):
+        sub = self.service.get_client()
+        pub = self.service.get_client()
+
+        topic = _rand_str()
+        sub.subscribe(topic)
+
+        sent = "this is data, and, \x00no split required,"
+        pub.publish(topic, sent)
+        time.sleep(0.1)
+        received = sub.receive_single()
+        self.assertEqual(received, sent)
 
 
 def _receive_several(sub: Client, storage: list):
