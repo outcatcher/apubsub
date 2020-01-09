@@ -1,144 +1,125 @@
+import asyncio
 import logging
-import time
-from multiprocessing import Event, Lock, Pipe, Process, synchronize
-from multiprocessing.connection import Connection
-from threading import Thread
-from typing import Dict, List, Set, Union
+import socket
+from multiprocessing import Event, Lock, Process, synchronize
+from typing import Dict, Set
 from uuid import uuid4
 
-from ._protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, UTF8, data_message, err, ok, parse_command
+from ._protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, ENDIANNESS, UTF8, err, ok, parse_command
 from .client import Client
+from .connection_wrapper import NoData, NotMessage, receive, send
 
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
+
+
+def _random_port():
+    sock = socket.socket()
+    sock.bind(("localhost", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
+
+
+async def _send_singe(port, data):
+    _, writer = await asyncio.open_connection("localhost", port)
+    await send(writer, data)
+    writer.close()
+    await writer.wait_closed()
 
 
 # noinspection PyBroadException
 class Service:
     """Pub/sub service"""
 
-    __run_lock: synchronize.Lock = Lock()
-    __stop: Event = Event()
-    __topics: Dict[str, Set[str]]
-    __clients: Dict[str, Connection]
-    __cl_threads: List[Thread]
-    _service_p: Union[Thread, Process]
+    _stop: Event = Event()
+    __run_lock: synchronize.SemLock = Lock()
+    __topics: Dict[str, Set[int]]
+    _service_p: Process
 
-    def __init__(self, process_based=False):
-        """Create new service instance.
+    async def _handle_pub(self, topic: str, data: bytes):
+        clients = self.__topics[topic]
+        sends = [_send_singe(port, data) for port in clients]
+        await asyncio.wait(sends)
+        return ok(CMD_PUB, topic)
 
-        If ``process_based`` is ``True``, will start new process.
-        Otherwise service will be run as Thread
-        """
+    async def _handle_sub(self, topic: str, port: int):
+        try:
+            self.__topics[topic].add(port)
+        except KeyError:
+            self.__topics[topic] = {port}
+        return ok(CMD_SUB, topic)
 
+    async def _handle_unsub(self, topic: str, port: int):
+        try:
+            self.__topics[topic].remove(port)
+        except KeyError:
+            pass
+        return ok(CMD_UNSUB, topic)
+
+    async def _handle_request(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        try:
+            message = await receive(reader)
+        except NotMessage:
+            LOGGER.exception("Can't process received message")
+            await send(writer, b"Invalid message")
+            writer.close()
+            await writer.wait_closed()
+            return
+        except NoData:
+            writer.close()
+            await writer.wait_closed()
+            return  # client hasn't done anything
+
+        command = parse_command(message)
+        topic = command.topic.decode(UTF8)
+        if command.command == CMD_PUB:
+            response = await self._handle_pub(topic, command.data)
+        elif command.command == CMD_SUB:
+            response = await self._handle_sub(topic, int.from_bytes(command.data, ENDIANNESS))
+        elif command.command == CMD_UNSUB:
+            response = await self._handle_unsub(topic, int.from_bytes(command.data, ENDIANNESS))
+        else:
+            response = err(b"Unknown command", command.command)
+        await send(writer, response)
+        writer.close()
+        await writer.wait_closed()
+
+    def __init__(self):
+        """Create new service instance"""
         self.__clients = {}
         self.__topics = {}
-        self.__cl_threads = []
-        meth, name = (Process, "Process") if process_based else (Thread, "Thread")
-        self._service_p = meth(target=self._start, name=f"Service{name}")
+        self.port = _random_port()
+        self._service_p = Process(target=self._serve, args=(Service._stop,))
 
     def get_client(self) -> Client:
         """Get new client instance for running server"""
-        client_end, service_end = Pipe()
         uuid = str(uuid4())
-        self.__clients[uuid] = service_end
-        self._start_handle_client(uuid)
-        return Client(uuid, client_end)
+        client_port = _random_port()
+        client = Client(self.port, client_port)
+        self.__clients[uuid] = client_port
+        return client
 
-    def client_registered(self, client: Client) -> bool:
-        """Check if client with given uuid exists"""
-        return client.uuid in self.__clients
-
-    def _start(self):
-        if not self.__run_lock.acquire(block=False):
-            raise RuntimeError("Lock is currently acquired by other process")
-        _topics = {}
-        while not self.__stop.is_set():
-            time.sleep(0.1)
-        self.__run_lock.release()
-
-    def __handle_sub(self, topic: str, client_uuid: str) -> bytes:
-        response = ok(CMD_SUB, topic, client_uuid)
-        try:
-            self.__topics[topic].add(client_uuid)
-        except KeyError:
-            self.__topics[topic] = {client_uuid}
-        except Exception:
-            error_message = f"Unhandled exception while subscribing `{client_uuid}` to `{topic}`"
-            LOGGER.exception(error_message)
-            response = err(CMD_SUB, topic, client_uuid)
-        return response
-
-    def __handle_unsub(self, topic: str, client_uuid: str) -> bytes:
-        response = ok(CMD_UNSUB, topic, client_uuid)
-        try:
-            self.__topics[topic].remove(client_uuid)
-        except KeyError:
-            pass
-        except Exception:
-            error_message = f"Unhandled exception while un-subscribing `{client_uuid}` from `{topic}`"
-            LOGGER.exception(error_message)
-            response = err(CMD_UNSUB, topic, client_uuid)
-        return response
-
-    def __handle_pub(self, topic: str, data: bytes) -> bytes:
-        """Send data for all not closed connections in self._topics"""
-        try:
-            subscribed_clients = self.__topics[topic]
-        except KeyError:
-            message = f"Not topic {topic} exists"
-            LOGGER.exception(message)
-            return err(CMD_PUB, topic)
-        for client in subscribed_clients:
-            connection = self.__clients[client]
-            if not connection.closed:
-                connection.send_bytes(data_message(data) + b"\00")
-        return ok(CMD_PUB, topic)
-
-    def __handle_client(self, _uuid):
-        connection = self.__clients[_uuid]
-        while not self.__stop.is_set():
-            try:
-                if not connection.poll(1):
-                    continue
-            except BrokenPipeError:
-                break
-            try:
-                data = connection.recv_bytes()
-            except EOFError:
-                LOGGER.warning("Server connection is closed, stopping client")
-                break
-            command = parse_command(data)
-            topic = command.topic.decode(UTF8)
-            if command.command == CMD_SUB:
-                response = self.__handle_sub(topic, _uuid)
-            elif command.command == CMD_UNSUB:
-                response = self.__handle_unsub(topic, _uuid)
-            elif command.command == CMD_PUB:
-                response = self.__handle_pub(topic, command.data)
-            else:
-                response = err(b"Unknown command", command.command)
-            connection.send_bytes(response)
-        connection.close()
-
-    def _start_handle_client(self, client: str):
-        """Handle client communication in new thread"""
-        thr = Thread(target=self.__handle_client, name=f"ClientThread-{client}", args=(client,))
-        thr.start()
-        self.__cl_threads.append(thr)
+    def _serve(self, stop_event):
+        loop = asyncio.get_event_loop()
+        server = loop.run_until_complete(asyncio.start_server(self._handle_request, "localhost", self.port))
+        LOGGER.info("Server started")
+        loop.run_until_complete(_wait_for_stop(server, stop_event))
 
     def start(self):
-        self.__stop.clear()
+        self._stop.clear()
         self._service_p.start()
-        LOGGER.info("Service process started")
+        LOGGER.info("Service started on port %s", self.port)
 
     def stop(self):
-        self.__stop.set()
+        self._stop.set()
         self._service_p.join()
-        for thr in self.__cl_threads:
-            thr.join()
         LOGGER.info("Service process stopped")
 
-    @property
-    def running(self):
-        return not self.__stop.is_set()
+
+async def _wait_for_stop(srv, event):
+    while not event.is_set():
+        await asyncio.sleep(.1)
+    if srv is not None:
+        srv.close()
+        await srv.wait_closed()

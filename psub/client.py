@@ -1,10 +1,11 @@
+import asyncio
 import logging
-from multiprocessing.connection import Connection
-from typing import Generator, List, Optional
+import string
+import time
+from asyncio import Queue
 
-from ._protocol import (
-    CMD_PUB, CMD_SUB, CMD_UNSUB, OK, ParsedMessage, UTF8, command, get_data, is_data, parse_cmd_response
-)
+from ._protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, ENDIANNESS, OK, UTF8, command, ok, parse_cmd_response
+from .connection_wrapper import receive, send
 
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
@@ -20,86 +21,75 @@ class ServiceResponseError(Exception):
     """Fail during response parsing"""
 
 
+def _port_to_bytes(port: int):
+    return port.to_bytes(2, ENDIANNESS)
+
+
 # noinspection PyBroadException
 class Client:
     """Client for interacting with service"""
 
     _active = False
 
-    def __init__(self, _uuid: str, _connection: Connection):
-        self.uuid = _uuid
-        self._connection = _connection
-        self._active = False
-        self._cache: List[bytes] = []  # cache for data messages
+    def __init__(self, server_port: int, client_port: int):
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            asyncio.set_event_loop(asyncio.new_event_loop())
+            loop = asyncio.get_event_loop()
+        self._data_queue = Queue()
+        self.server_port = server_port
 
-    def __receive_cmd_response(self, poll_timeout=1.0) -> ParsedMessage:
-        def _poll():
-            if not self._connection.poll(poll_timeout):
-                raise TimeoutError(f"Service is not responding in {poll_timeout} seconds")
+        loop.run_until_complete(asyncio.start_server(self.consume_input, "localhost", client_port))
+        self.port = client_port
 
-        _poll()
-        message = self._connection.recv_bytes()
+    async def consume_input(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        message = await receive(reader)
+        await self._data_queue.put(message)
+        await send(writer, ok(b"", b""))
+        writer.close()
+        await writer.wait_closed()
 
-        while is_data(message):  # consume received data messages
-            self._cache.append(message[:-1])
-            _poll()
-            message = self._connection.recv_bytes()
-
-        verdict, cmd = parse_cmd_response(message)
-        if verdict != OK:
-            raise ClientError(f"Fail during performing '{cmd.command}' on '{cmd.topic}'")
-        return cmd
-
-    def _send_command(self, cmd, topic, data=None):
+    async def _send_command(self, cmd, topic, data=None):
         message = command(cmd, topic, data)
-        self._connection.send_bytes(message)
-        response = self.__receive_cmd_response()
+        reader, writer = await asyncio.open_connection("localhost", self.server_port)
+        await send(writer, message)
+        resolution, response = parse_cmd_response(await receive(reader))
+        if resolution != OK:
+            raise ClientError(f"CMD response is {resolution}, but {OK} expected")
         if cmd != response.command:
             raise ClientError(f"Expected response to {cmd} command, got {response.command}")
+        writer.close()
+        await writer.wait_closed()
+
+    def send_command(self, cmd, topic, data):
+        asyncio.get_event_loop().run_until_complete(self._send_command(cmd, topic, data))
 
     def publish(self, topic: str, data: str):
-        self._send_command(CMD_PUB, topic, data)
+        self.send_command(CMD_PUB, topic, data)
 
     def subscribe(self, topic: str):
-        self._send_command(CMD_SUB, topic)
+        if not (set(topic) < set(string.ascii_letters + string.digits)):
+            raise TypeError("Topic can be only ASCII letters")
+        self.send_command(CMD_SUB, topic, _port_to_bytes(self.port))
 
     def unsubscribe(self, topic: str):
-        self._send_command(CMD_UNSUB, topic)
+        self.send_command(CMD_UNSUB, topic, _port_to_bytes(self.port))
 
-    def start_receiving(self) -> Generator:
-        """Receive messages from connection as generator"""
+    def get_single(self):
+        """Get single data message"""
+        if self._data_queue.empty():
+            return None
+        data: bytes = self._data_queue.get_nowait()
+        return data.decode(UTF8)
+
+    def start_receiving(self):
+        """Get all received messages"""
         self._active = True
         while self._active:
-            if self._cache:
-                yield self._cache.pop(0)
-            try:
-                ready = self._connection.poll(1)
-                if not ready:
-                    continue
-            except BrokenPipeError:
-                break
-            try:
-                message = get_data(self._connection.recv_bytes())[:-1]
-                yield message.decode(UTF8)
-            except UnicodeDecodeError:
-                LOGGER.exception("Can't decode message")
-            except EOFError:
-                break
-            except Exception:
-                LOGGER.exception("Can't receive message from connection")
-                continue
+            if not self._data_queue.empty():
+                yield self._data_queue.get_nowait().decode(UTF8)
+            time.sleep(0.01)
 
     def stop_receiving(self):
         self._active = False
-
-    def receive_single(self) -> Optional[str]:
-        """Receive single message from pipe"""
-        if not self._cache:
-            if not self._connection.poll(1):
-                return None
-            message = self._connection.recv_bytes()[:-1]
-        else:
-            message = self._cache.pop(0)
-
-        assert is_data(message), f"Expected data message, got:\n`{message}`"
-        return get_data(message).decode(UTF8)
