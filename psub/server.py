@@ -1,3 +1,5 @@
+"""Message service"""
+
 import asyncio
 import logging
 import socket
@@ -30,7 +32,7 @@ async def _send_singe(port, data):
 
 # noinspection PyBroadException
 class Service:
-    """Pub/sub service"""
+    """Message service running in stand-alone process"""
 
     _stop: Event = Event()
     __run_lock: synchronize.SemLock = Lock()
@@ -38,7 +40,10 @@ class Service:
     _service_p: Process
 
     async def _handle_pub(self, topic: str, data: bytes):
-        clients = self.__topics[topic]
+        try:
+            clients = self.__topics[topic]
+        except KeyError:
+            return err(CMD_PUB, topic, "NO_TOPIC")
         sends = [_send_singe(port, data) for port in clients]
         await asyncio.wait(sends)
         return ok(CMD_PUB, topic)
@@ -72,6 +77,7 @@ class Service:
             return  # client hasn't done anything
 
         command = parse_command(message)
+        LOGGER.debug("Received command: %s", command)
         topic = command.topic.decode(UTF8)
         if command.command == CMD_PUB:
             response = await self._handle_pub(topic, command.data)
@@ -103,15 +109,19 @@ class Service:
     def _serve(self, stop_event):
         loop = asyncio.get_event_loop()
         server = loop.run_until_complete(asyncio.start_server(self._handle_request, "localhost", self.port))
-        LOGGER.info("Server started")
+        LOGGER.debug("Server started")
         loop.run_until_complete(_wait_for_stop(server, stop_event))
 
     def start(self):
+        """Start new service process"""
+
         self._stop.clear()
         self._service_p.start()
         LOGGER.info("Service started on port %s", self.port)
 
     def stop(self):
+        """Stop running service process"""
+
         self._stop.set()
         self._service_p.join()
         LOGGER.info("Service process stopped")

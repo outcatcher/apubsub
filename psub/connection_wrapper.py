@@ -1,3 +1,5 @@
+"""High-level methods for message processing"""
+
 import asyncio
 import logging
 from zlib import adler32

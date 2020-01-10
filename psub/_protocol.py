@@ -1,5 +1,5 @@
 """Implementation of internal client-server protocol"""
-from typing import AnyStr, Iterable, List, NamedTuple, Optional, Tuple
+from typing import AnyStr, Iterable, List, NamedTuple, Tuple
 from zlib import adler32
 
 UTF8 = "utf-8"
@@ -45,8 +45,8 @@ class MaxSizeOverflow(Exception):
 
 
 def build_packet(body: bytes) -> bytes:
-    if b"\00" in body:
-        raise TypeError("Data should not contain NULL character")
+    """Build protocol packet"""
+
     adler_size = 4
     body_hash = adler32(body).to_bytes(adler_size, ENDIANNESS)  # 4 bytes of checksum
     size = len(body) + adler_size
@@ -57,11 +57,13 @@ def build_packet(body: bytes) -> bytes:
 
 
 def _build_message(cmd: AnyStr, data: AnyStr) -> bytes:
-    cmd, data = _convert_to_bytes(cmd, data)
+    cmd, data = _convert_to_bytes(cmd, data)  # pylint: disable=unbalanced-tuple-unpacking
     return cmd + SEPARATOR + data
 
 
 class ParsedMessage(NamedTuple):
+    """Container for parsed messages"""
+
     command: bytes
     topic: bytes
     data: bytes = b""
@@ -78,12 +80,9 @@ def parse_command(message: bytes) -> ParsedMessage:
     return ParsedMessage(cmd, topic, *data)
 
 
-def command(cmd: AnyStr, topic: AnyStr, data: Optional[AnyStr] = None):
+def command(cmd: AnyStr, topic: AnyStr, data: AnyStr = b""):
     """Command message, e.g. b'SUB::topic,data'"""
-    cmd, topic = _convert_to_bytes(cmd, topic)
-    if data is None:
-        return _build_message(cmd, topic)
-    data = _convert_to_bytes(data)[0]
+    cmd, topic, data = _convert_to_bytes(cmd, topic, data)  # pylint: disable=unbalanced-tuple-unpacking
     return _build_message(cmd, topic + SUB_SEPARATOR + data)
 
 
@@ -95,8 +94,11 @@ DATA = b"DATA"
 
 
 def parse_cmd_response(message: bytes) -> Tuple[bytes, ParsedMessage]:
-    verdict, data = message.split(SEPARATOR)
+    """Parse response to the command"""
+
+    verdict, data = message.split(SEPARATOR, 1)
     cmd, topic, *other = data.split(SUB_SEPARATOR, 2)
+    other = b"" if not other else other[0]
     data = ParsedMessage(cmd, topic, other)
     return verdict, data
 
@@ -111,13 +113,3 @@ def err(cmd, topic, *args: AnyStr) -> bytes:
     """Error during message processing"""
     message = SUB_SEPARATOR.join(_convert_to_bytes(cmd, topic, *args))
     return ERR + SEPARATOR + message
-
-
-def is_ok(message: bytes) -> bool:
-    """Check if message is 'OK' message"""
-    return message.startswith(OK + SEPARATOR)
-
-
-def is_data(message: bytes) -> bool:
-    """Check if message is data message"""
-    return message.startswith(DATA + SEPARATOR)

@@ -1,133 +1,104 @@
-import random
-import socket
+import asyncio
 import string
-import time
 from threading import Thread
-from unittest import TestCase
 
-from psub.client import Client
-from psub.server import Service
+import pytest
 
-
-def _rand_str(size=10, charset=string.ascii_letters):
-    r_string = "".join(random.choice(charset) for _ in range(size))
-    return r_string
+from psub._protocol import CMD_PUB, MAX_PACKET_SIZE, MaxSizeOverflow
+from psub.client import Client, ClientError
+from tests.conftest import _rand_str
 
 
-def _client_exists(srv, client):
-    assert srv.client_registered(client)
+def test_multiple_subs(subs, pub, topic, data):
+    for sub in subs:
+        sub.subscribe(topic)
+    pub.publish(topic, data)
+    for sub in subs:
+        assert sub.receive_single(.1) == data
 
 
-class TestService(TestCase):
-    service: Service
-
-    @classmethod
-    def setUpClass(cls):
-        cls.service = Service()
-        cls.service.start()
-        sock = socket.socket(socket.AF_INET)
-        sock.settimeout(3)
-        time.sleep(0.5)
-
-        try:
-            sock.connect(("localhost", cls.service.port))
-        finally:
-            sock.close()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.service.stop()
+async def _receive_all(sub: Client):
+    res = []
+    async for v in sub.start_receiving():
+        res.append(v)
+        await asyncio.sleep(.01)
+    return res
 
 
-class TestSubscription(TestService):
+def test_receive_generator(service, pub, data, topic):
+    count = 5
+    sub = service.get_client()
+    sub.subscribe(topic)
+    generated = [_rand_str(200, string.printable) for _ in range(count)]
+    for msg in generated:
+        pub.publish(topic, msg)
+    loop = asyncio.get_event_loop()
+    loop.call_later(.1, sub.stop_receiving)
+    received = loop.run_until_complete(_receive_all(sub))
+    assert sorted(received) == sorted(generated)
 
-    def test_multiple_subs(self):
-        sub1 = self.service.get_client()
-        sub2 = self.service.get_client()
-        pub = self.service.get_client()
-        topic = "TOPIC"
 
-        sub1.subscribe(topic)
-        sub2.subscribe(topic)
-        data = _rand_str(200, string.printable)
+def test_unsubscribe(service, pub, topic, subs, data):
+    topic2 = "topic2"
+    for sub in subs:
+        sub.subscribe(topic)
+        sub.subscribe(topic2)
+    special_sub = subs.pop(0)
+    special_sub.unsubscribe(topic2)
 
+    data2 = "Second data"
+    pub.publish(topic, data)
+    pub.publish(topic2, data2)
+
+    assert (special_sub.receive_single(.1), special_sub.receive_single(.1)) == (data, None)
+    for sub in subs:
+        assert (sub.receive_single(.1), sub.receive_single(.1)) == (data, data2)
+
+
+def test_receive_big_data(service, pub, topic):
+    sub = service.get_client()
+    sub.subscribe(topic)
+    sent = _rand_str(20_000, string.printable)
+    pub.publish(topic, sent)
+    received = sub.receive_single(1)
+    assert received == sent
+
+
+def test_unknown_command(service):
+    client = service.get_client()
+    with pytest.raises(ClientError):
+        client.send_command("UNKNOWN", "", "")
+
+
+def test_too_big(pub):
+    with pytest.raises(MaxSizeOverflow):
+        pub.publish("topic", "A" * MAX_PACKET_SIZE + "A")
+
+
+def test_not_allowed_topic(pub):
+    with pytest.raises(TypeError):
+        pub.subscribe("topic-1")
+
+
+def test_bytes_command(pub):
+    pub.subscribe("topic")
+    with pytest.raises(TypeError):
+        pub.send_command(CMD_PUB, b"topic", None)
+
+
+def test_publish_with_no_subs(pub, topic, data):
+    with pytest.raises(ClientError):
         pub.publish(topic, data)
 
-        received = sub1.get_single()
-        self.assertEqual(received, data)
 
-        received = sub2.get_single()
-        self.assertEqual(received, data)
-
-    def test_receive_generator(self):
-        count = random.randrange(5)
-        topic = _rand_str()
-        pub = self.service.get_client()
-        sub = self.service.get_client()
-        sub.subscribe(topic)
-
-        generated = [_rand_str(200, string.printable) for _ in range(count)]
-        received = []
-        thr = Thread(target=_receive_several, args=(sub, received))
-        thr.start()
-        for data in generated:
-            pub.publish(topic, data)
-        time.sleep(0.5)
-        sub.stop_receiving()
-        thr.join()
-        self.assertListEqual(received, generated)
-
-    def test_unsubscribe(self):
-        sub1 = self.service.get_client()
-        sub2 = self.service.get_client()
-        pub = self.service.get_client()
-        topic = "TOPIC"
-        sub1.subscribe(topic)
-        sub2.subscribe(topic)
-
-        data = _rand_str(200, string.printable)
-        pub.publish(topic, data)
-        s1_data = [sub1.get_single()]
-        s2_data = [sub2.get_single()]
-        sub2.unsubscribe(topic)
-        data2 = _rand_str(200, string.printable)
-        pub.publish(topic, data2)
-
-        s1_data.append(sub1.get_single())
-        s2_data.append(sub2.get_single())
-
-        self.assertListEqual(s1_data, [data, data2])
-        self.assertListEqual(s2_data, [data, None])
-
-    def test_control_data_mix(self):
-        sub = self.service.get_client()
-        pub = self.service.get_client()
-
-        topic = _rand_str()
-        sub.subscribe(topic)
-
-        sent = _rand_str(200, string.printable)
-        pub.publish(topic, sent)
-        sub.subscribe("topic2")
-        time.sleep(0.1)
-
-        received = sub.get_single()
-        self.assertEqual(received, sent)
-
-    def test_receive_big_data(self):
-        sub = self.service.get_client()
-        pub = self.service.get_client()
-
-        topic = _rand_str()
-        sub.subscribe(topic)
-
-        sent = _rand_str(2000)
-        pub.publish(topic, sent)
-        time.sleep(0.1)
-        received = sub.get_single()
-        self.assertEqual(received, sent)
+def test_unsub_not_subscribed(pub, topic):
+    pub.unsubscribe(topic)
 
 
-def _receive_several(sub: Client, storage: list):
-    for message in sub.start_receiving():
-        storage.append(message)
+def test_threaded_client(service, pub, topic, data):
+    sub = service.get_client()
+    sub.subscribe(topic)
+    thr = Thread(target=sub.receive_single, args=(.1,))
+    thr.start()
+    pub.publish(topic, data)
+    thr.join(.5)

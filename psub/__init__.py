@@ -1,3 +1,5 @@
+"""Simple pub/sub pattern implementation"""
+
 import logging
 
 LOGGER = logging.getLogger(__name__)
