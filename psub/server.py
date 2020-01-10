@@ -7,12 +7,12 @@ from multiprocessing import Event, Lock, Process, synchronize
 from typing import Dict, Set
 from uuid import uuid4
 
-from ._protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, ENDIANNESS, UTF8, err, ok, parse_command
 from .client import Client
 from .connection_wrapper import NoData, NotMessage, receive, send
+from .protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, ENDIANNESS, UTF8, err, ok, parse_command
 
 LOGGER = logging.getLogger(__name__)
-LOGGER.setLevel(logging.DEBUG)
+LOGGER.setLevel(logging.INFO)
 
 
 def _random_port():
@@ -40,13 +40,14 @@ class Service:
     _service_p: Process
 
     async def _handle_pub(self, topic: str, data: bytes):
+        _ok = ok(CMD_PUB, topic)
         try:
             clients = self.__topics[topic]
         except KeyError:
-            return err(CMD_PUB, topic, "NO_TOPIC")
+            return _ok
         sends = [_send_singe(port, data) for port in clients]
         await asyncio.wait(sends)
-        return ok(CMD_PUB, topic)
+        return _ok
 
     async def _handle_sub(self, topic: str, port: int):
         try:

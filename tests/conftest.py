@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from psub.server import Service
+from psub import Service
 
 
 def _rand_str(size=10, charset=string.ascii_letters):

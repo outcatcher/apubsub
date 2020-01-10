@@ -1,11 +1,12 @@
 import asyncio
 import string
+import time
 from threading import Thread
 
 import pytest
 
-from psub._protocol import CMD_PUB, MAX_PACKET_SIZE, MaxSizeOverflow
 from psub.client import Client, ClientError
+from psub.protocol import CMD_PUB, MAX_PACKET_SIZE, MaxSizeOverflow
 from tests.conftest import _rand_str
 
 
@@ -14,7 +15,7 @@ def test_multiple_subs(subs, pub, topic, data):
         sub.subscribe(topic)
     pub.publish(topic, data)
     for sub in subs:
-        assert sub.receive_single(.1) == data
+        assert sub.get_single(.1) == data
 
 
 async def _receive_all(sub: Client):
@@ -50,9 +51,9 @@ def test_unsubscribe(service, pub, topic, subs, data):
     pub.publish(topic, data)
     pub.publish(topic2, data2)
 
-    assert (special_sub.receive_single(.1), special_sub.receive_single(.1)) == (data, None)
+    assert (special_sub.get_single(.1), special_sub.get_single(.1)) == (data, None)
     for sub in subs:
-        assert (sub.receive_single(.1), sub.receive_single(.1)) == (data, data2)
+        assert (sub.get_single(.1), sub.get_single(.1)) == (data, data2)
 
 
 def test_receive_big_data(service, pub, topic):
@@ -60,7 +61,7 @@ def test_receive_big_data(service, pub, topic):
     sub.subscribe(topic)
     sent = _rand_str(20_000, string.printable)
     pub.publish(topic, sent)
-    received = sub.receive_single(1)
+    received = sub.get_single(1)
     assert received == sent
 
 
@@ -87,18 +88,31 @@ def test_bytes_command(pub):
 
 
 def test_publish_with_no_subs(pub, topic, data):
-    with pytest.raises(ClientError):
-        pub.publish(topic, data)
+    pub.publish(topic, data)  # nothing should happen
 
 
 def test_unsub_not_subscribed(pub, topic):
     pub.unsubscribe(topic)
 
 
+def test_receive_all(pub, service, topic):
+    sub = service.get_client()
+    sub.subscribe(topic)
+
+    sent = [f"MSG{i}" for i in range(100)]
+    for msg in sent:
+        pub.publish(topic, msg)
+
+    time.sleep(.1)
+
+    received = sub.get_all()
+    assert received == sent
+
+
 def test_threaded_client(service, pub, topic, data):
     sub = service.get_client()
     sub.subscribe(topic)
-    thr = Thread(target=sub.receive_single, args=(.1,))
+    thr = Thread(target=sub.get_single, args=(.1,))
     thr.start()
     pub.publish(topic, data)
     thr.join(.5)
