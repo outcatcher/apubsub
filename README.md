@@ -4,10 +4,18 @@ Simple, single-purpose message service implementation.
 
 *Note that service is started in stand-alone process, so start it as early as possible to minimize resource pickling*
 
-### Usage:
+### Installation
+
+_Python versin 3.7+ required_
+
+Just install it with pip: `pip install apubsub`
+
+### Usage
+
 The most simple usage is to subscribe to topic and receive single message:
 
 ```python
+from psub import Service
 
 service = Service()
 service.start()
