@@ -4,14 +4,17 @@ version = "0.1.0"
 description = "Message service implementing publisher/subscriber pattern"
 authors = ["Anton Kachurin <katchuring@gmail.com>"]
 license = "MIT"
+readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.7"
+uvloop = {version = "^0.14.0", platform = "linux"}
+
+[tool.poetry.dev-dependencies]
 pytest = "^5.3.2"
 pytest-cov = "^2.8.1"
 pylint = "^2.4.4"
-
-[tool.poetry.dev-dependencies]
+pylint-quotes = "^0.2.1"
 
 [build-system]
 requires = ["poetry>=1.0"]

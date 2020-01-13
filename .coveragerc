@@ -2,6 +2,9 @@
 [run]
 branch = True
 concurrency = multiprocessing
+source =
+    # checking cover only for `psub` library
+    psub
 
 [report]
 # Regexes for lines to exclude from consideration

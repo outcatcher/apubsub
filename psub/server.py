@@ -11,6 +11,14 @@ from .client import Client
 from .connection_wrapper import NoData, NotMessage, receive, send
 from .protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, ENDIANNESS, UTF8, err, ok, parse_command
 
+try:
+    # noinspection PyUnresolvedReferences
+    import uvloop
+
+    uvloop.install()
+except ImportError:
+    pass
+
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.INFO)
 

@@ -1,9 +1,10 @@
 import asyncio
 import logging
-import string
 import time
 from asyncio import Queue, QueueEmpty
 from typing import List, Optional
+
+import string
 
 from .connection_wrapper import receive, send
 from .protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, ENDIANNESS, OK, UTF8, command, ok, parse_cmd_response
@@ -46,6 +47,7 @@ class Client:
         self._active = asyncio.Event()
 
     async def consume_input(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        """Process input connections"""
         message = await receive(reader)
         await self._data_queue.put(message)
         await send(writer, ok(b"", b""))
