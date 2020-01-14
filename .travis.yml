@@ -13,7 +13,7 @@ install:
 jobs:
   include:
   - stage: test
-    script: poetry run pytest --cov psub
+    script: poetry run pytest --cov apubsub
   - stage: pypi
     name: Deploy to PyPi
     script: poetry publish --build -u $PYPI_USERNAME -p $PYPI_PASSWORD
