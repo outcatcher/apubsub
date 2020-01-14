@@ -4,7 +4,7 @@ import asyncio
 import logging
 from zlib import adler32
 
-from psub.protocol import ENDIANNESS, MESSAGE_START, build_packet
+from apubsub.protocol import ENDIANNESS, MESSAGE_START, build_packet
 
 
 class NotMessage(Exception):

@@ -1,11 +1,11 @@
-import random
 import socket
-import string
 import time
 
 import pytest
+import random
+import string
 
-from psub import Service
+from apubsub import Service
 
 
 def _rand_str(size=10, charset=string.ascii_letters):

@@ -5,8 +5,8 @@ from threading import Thread
 
 import pytest
 
-from psub.client import Client, ClientError
-from psub.protocol import CMD_PUB, MAX_PACKET_SIZE, MaxSizeOverflow
+from apubsub.client import Client, ClientError
+from apubsub.protocol import CMD_PUB, MAX_PACKET_SIZE, MaxSizeOverflow
 from tests.conftest import _rand_str
 
 

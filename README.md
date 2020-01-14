@@ -2,6 +2,10 @@
 
 Simple, single-purpose message service implementation.
 
+[![Build Status](https://travis-ci.org/outcatcher/apubsub.svg?branch=master)](https://travis-ci.org/outcatcher/apubsub)
+[![Coverage](https://codecov.io/gh/outcatcher/apubsub/branch/master/graph/badge.svg)](https://codecov.io/gh/outcatcher/apubsub)
+
+
 *Note that service is started in stand-alone process, so start it as early as possible to minimize resource pickling*
 
 ### Installation
@@ -15,7 +19,7 @@ Just install it with pip: `pip install apubsub`
 The most simple usage is to subscribe to topic and receive single message:
 
 ```python
-from psub import Service
+from apubsub import Service
 
 service = Service()
 service.start()
