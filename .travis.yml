@@ -14,7 +14,7 @@ install:
 jobs:
   include:
   - stage: test
-    script: poetry run pytest --cov apubsub
+    script: poetry run pytest --cov-report xml --cov apubsub
   - stage: report
     script: poetry run codecov
   - stage: pypi
