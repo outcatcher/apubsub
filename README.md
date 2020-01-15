@@ -1,14 +1,11 @@
-# apubsub
-
-Simple, single-purpose message service implementation.
+# APubSub
 
 [![Build Status](https://travis-ci.org/outcatcher/apubsub.svg?branch=master)](https://travis-ci.org/outcatcher/apubsub)
 [![Coverage](https://codecov.io/gh/outcatcher/apubsub/branch/master/graph/badge.svg)](https://codecov.io/gh/outcatcher/apubsub)
 [![PyPI version](https://img.shields.io/pypi/v/apubsub.svg)](https://pypi.org/project/apubsub/)
 ![GitHub](https://img.shields.io/github/license/outcatcher/apubsub)
 
-
-*Note that service is started in stand-alone process, so start it as early as possible to minimize resource pickling*
+Simple, single-purpose message service implementation.
 
 ### Installation
 
@@ -44,3 +41,5 @@ data = sub.get_all()  # ['some more data', 'and more']
 
 Also, `Client` provides `start_receiving` async generator for receiving messages on-demand.
 It will wait for new messages until interrupted by `stop_receiving` call
+
+*Note that service is started in stand-alone process, so start it as early as possible to minimize resource pickling*
