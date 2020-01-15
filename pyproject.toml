@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "apubsub"
-version = "0.1.0"
+version = "0.1.1"
 description = "Message service implementing publisher/subscriber pattern"
 authors = ["Anton Kachurin <katchuring@gmail.com>"]
 license = "MIT"

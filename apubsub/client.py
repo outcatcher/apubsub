@@ -1,10 +1,9 @@
 import asyncio
 import logging
+import re
 import time
 from asyncio import Queue, QueueEmpty
 from typing import List, Optional
-
-import string
 
 from .connection_wrapper import receive, send
 from .protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, ENDIANNESS, OK, UTF8, command, ok, parse_cmd_response
@@ -25,6 +24,9 @@ class ServiceResponseError(Exception):
 
 def _port_to_bytes(port: int):
     return port.to_bytes(2, ENDIANNESS)
+
+
+ALLOWED_TOPIC_RE = re.compile(r"[\w_\-\d]+")
 
 
 # noinspection PyBroadException
@@ -79,7 +81,7 @@ class Client:
     def subscribe(self, topic: str):
         """Subscribe client to a topic"""
 
-        if not set(topic) < set(string.ascii_letters + string.digits):
+        if ALLOWED_TOPIC_RE.fullmatch(topic) is None:
             raise TypeError("Topic can be only ASCII letters")
         self.send_command(CMD_SUB, topic, _port_to_bytes(self.port))
 
