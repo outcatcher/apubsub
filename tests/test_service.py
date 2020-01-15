@@ -78,7 +78,7 @@ def test_too_big(pub):
 
 def test_not_allowed_topic(pub):
     with pytest.raises(TypeError):
-        pub.subscribe("topic-1")
+        pub.subscribe("topic:1")
 
 
 def test_bytes_command(pub):
