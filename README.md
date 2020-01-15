@@ -4,6 +4,7 @@ Simple, single-purpose message service implementation.
 
 [![Build Status](https://travis-ci.org/outcatcher/apubsub.svg?branch=master)](https://travis-ci.org/outcatcher/apubsub)
 [![Coverage](https://codecov.io/gh/outcatcher/apubsub/branch/master/graph/badge.svg)](https://codecov.io/gh/outcatcher/apubsub)
+[![PyPI version](https://img.shields.io/pypi/v/apubsub.svg)](https://pypi.org/project/apubsub/)
 
 
 *Note that service is started in stand-alone process, so start it as early as possible to minimize resource pickling*
