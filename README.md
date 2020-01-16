@@ -15,31 +15,40 @@ Just install it with pip: `pip install apubsub`
 
 ### Usage
 
-The most simple usage is to subscribe to topic and receive single message:
 
 ```python
 from apubsub import Service
 
 service = Service()
+
+# Note that service is started in stand-alone process
+# so start it as early as possible to minimize resource pickling*
 service.start()
 
-pub = service.get_client()
-sub = service.get_client()  # every client can perform both pub and sub roles
+class Klass:
 
-sub.subscribe('topic')
+    def __init__(self):
+        self.sub = service.get_client()
+        await self.sub.start_consuming()  # subscriber should be started
+        
+        self.pub = service.get_client()  # if used only as publisher, it is not required
 
-pub.publish('topic', 'some data')  # publish put data to subscribed Client queue
+    async def do_smth(self):
+        data = await self.sub.get(.1)  # fetch received data with timeout
+        if data is None:
+            print("No data received by subscriber")
+            return
+        print(data)
+    
+    async def do_smth_else(self):
+        msg = "some string data"
+        await self.pub.publish("topic", msg)
 
-pub.publish('topic', 'some more data')
-pub.publish('topic', 'and more')
-
-data = sub.get_single(timeout=0.1)  # 'some data'
-
-data = sub.get_all()  # ['some more data', 'and more']
+    async def use_iter_get(self):
+        async for data in self.sub.get_iter():
+            print(f"Data received: {data}")
 
 ```
 
-Also, `Client` provides `start_receiving` async generator for receiving messages on-demand.
-It will wait for new messages until interrupted by `stop_receiving` call
+_Check out more examples in tests_
 
-*Note that service is started in stand-alone process, so start it as early as possible to minimize resource pickling*

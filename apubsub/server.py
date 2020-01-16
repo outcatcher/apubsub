@@ -11,12 +11,12 @@ from .client import Client
 from .connection_wrapper import NoData, NotMessage, receive, send
 from .protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, ENDIANNESS, UTF8, err, ok, parse_command
 
-try:
+try:  # pragma: no cover
     # noinspection PyUnresolvedReferences
     import uvloop
 
     uvloop.install()
-except ImportError:
+except ImportError:   # pragma: no cover
     pass
 
 LOGGER = logging.getLogger(__name__)
@@ -32,7 +32,11 @@ def _random_port():
 
 
 async def _send_singe(port, data):
-    _, writer = await asyncio.open_connection("localhost", port)
+    try:
+        _, writer = await asyncio.open_connection("localhost", port)
+    except ConnectionError:
+        LOGGER.exception(f"Failed to send data to client {port}")
+        return
     await send(writer, data)
     writer.close()
     await writer.wait_closed()

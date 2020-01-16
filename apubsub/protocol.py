@@ -44,12 +44,14 @@ class MaxSizeOverflow(Exception):
     """Message is bigger than can be processed by protocol"""
 
 
+ADLER_SIZE = 4
+
+
 def build_packet(body: bytes) -> bytes:
     """Build protocol packet"""
 
-    adler_size = 4
-    body_hash = adler32(body).to_bytes(adler_size, ENDIANNESS)  # 4 bytes of checksum
-    size = len(body) + adler_size
+    body_hash = adler32(body).to_bytes(ADLER_SIZE, ENDIANNESS)  # 4 bytes of checksum
+    size = len(body) + ADLER_SIZE
     if size > MAX_PACKET_SIZE:
         raise MaxSizeOverflow
     size = size.to_bytes(PACKET_SIZE_SIZE, ENDIANNESS, signed=False)

@@ -1,16 +1,11 @@
 import socket
+import string
 import time
 
 import pytest
-import random
-import string
 
 from apubsub import Service
-
-
-def _rand_str(size=10, charset=string.ascii_letters):
-    r_string = "".join(random.choice(charset) for _ in range(size))
-    return r_string
+from tests.helpers import rand_str, started_client
 
 
 @pytest.fixture(scope="session")
@@ -30,21 +25,19 @@ def service():
 
 @pytest.fixture
 def data():
-    return _rand_str(200, string.printable)
+    return rand_str(200, string.printable)
 
 
 @pytest.fixture
 def topic():
-    return _rand_str(10, string.ascii_letters + string.digits)
+    return rand_str(10, string.ascii_letters + string.digits)
 
 
 @pytest.fixture
-def subs(service):
-    count = random.randrange(2, 10)
-    _subs = [service.get_client() for _ in range(count)]
-    return _subs
+async def sub(service):
+    return await started_client(service)
 
 
 @pytest.fixture
-def pub(service):
-    return service.get_client()
+async def pub(service):
+    return await started_client(service)

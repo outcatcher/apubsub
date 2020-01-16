@@ -1,118 +1,178 @@
 import asyncio
 import string
-import time
-from threading import Thread
+from typing import List
 
 import pytest
 
 from apubsub.client import Client, ClientError
+from apubsub.connection_wrapper import receive
 from apubsub.protocol import CMD_PUB, MAX_PACKET_SIZE, MaxSizeOverflow
-from tests.conftest import _rand_str
+from tests.helpers import rand_str, started_client
+
+pytestmark = pytest.mark.asyncio
 
 
-def test_multiple_subs(subs, pub, topic, data):
-    for sub in subs:
-        sub.subscribe(topic)
-    pub.publish(topic, data)
-    for sub in subs:
-        assert sub.get_single(.1) == data
+async def test_simple_publish(pub: Client, sub: Client, topic, data, service):
+    await sub.subscribe(topic)
+    await pub.publish(topic, data)
+    recv = await sub.get(.1)
+    assert recv == data
 
 
-async def _receive_all(sub: Client):
-    res = []
-    async for v in sub.start_receiving():
-        res.append(v)
-        await asyncio.sleep(.01)
-    return res
+async def test_multiple_subs(pub: Client, topic, data, service):
+    sub_coros = [started_client(service) for _ in range(10)]
+    subs: List[Client] = await asyncio.gather(*sub_coros)
+    await asyncio.wait([sub.subscribe(topic) for sub in subs])
+    await pub.publish(topic, data)
+    all_received = await asyncio.gather(*[sub.get(.1) for sub in subs])
+    assert all_received == [data] * len(subs)
 
 
-def test_receive_generator(service, pub, data, topic):
+async def test_receive_generator(service, pub: Client, data, topic):
     count = 5
-    sub = service.get_client()
-    sub.subscribe(topic)
-    generated = [_rand_str(200, string.printable) for _ in range(count)]
-    for msg in generated:
-        pub.publish(topic, msg)
-    loop = asyncio.get_event_loop()
-    loop.call_later(.1, sub.stop_receiving)
-    received = loop.run_until_complete(_receive_all(sub))
-    assert sorted(received) == sorted(generated)
+    sub = await started_client(service)
+    await sub.subscribe(topic)
+    generated_data = [rand_str(200, string.printable) for _ in range(count)]
+    await asyncio.wait([
+        pub.publish(topic, _data) for _data in generated_data
+    ])
+
+    loop = asyncio.get_running_loop()
+    loop.call_later(.3, sub.stop_getting)
+
+    async for _data in sub.get_iter():
+        pos = generated_data.index(_data)
+        generated_data.pop(pos)
+
+    assert sub._data_queue.qsize() == 0
+    assert not generated_data, f"Not all data consumed: {generated_data}"
 
 
-def test_unsubscribe(service, pub, topic, subs, data):
+async def test_receive_generator_remains(pub: Client, sub: Client, topic, data):
+    await sub.subscribe(topic)
+    await pub.publish(topic, data)
+    await pub.publish(topic, data)
+
+    async for received in sub.get_iter():
+        assert received == data
+        break
+
+    assert sub._data_queue.qsize() == 1
+
+
+async def test_unsubscribe(service, pub: Client, topic, data):
     topic2 = "topic2"
-    for sub in subs:
-        sub.subscribe(topic)
-        sub.subscribe(topic2)
-    special_sub = subs.pop(0)
-    special_sub.unsubscribe(topic2)
-
     data2 = "Second data"
-    pub.publish(topic, data)
-    pub.publish(topic2, data2)
+    subs: List[Client] = await asyncio.gather(*[started_client(service) for _ in range(2)])
 
-    assert (special_sub.get_single(.1), special_sub.get_single(.1)) == (data, None)
-    for sub in subs:
-        assert (sub.get_single(.1), sub.get_single(.1)) == (data, data2)
+    await asyncio.wait([
+        asyncio.gather(
+            sub.subscribe(topic),
+            sub.subscribe(topic2),
+        )
+        for sub in subs
+    ])
+    special_sub = subs.pop(0)
+    await special_sub.unsubscribe(topic2)
+
+    await asyncio.wait([
+        pub.publish(topic, data),
+        pub.publish(topic2, data2),
+    ])
+
+    received_special = [
+        await special_sub.get(.1),
+        await special_sub.get(.1),
+    ]
+
+    assert received_special == [data, None]
+
+    expected = sorted([data, data2])
+    received = [
+        sorted([await sub.get(.1), await sub.get(.1)])
+        for sub in subs
+    ]
+
+    assert sorted(received) == [expected] * len(subs)
 
 
-def test_receive_big_data(service, pub, topic):
-    sub = service.get_client()
-    sub.subscribe(topic)
-    sent = _rand_str(20_000, string.printable)
-    pub.publish(topic, sent)
-    received = sub.get_single(1)
+async def test_receive_big_data(service, pub: Client, topic):
+    sub = await started_client(service)
+    await sub.subscribe(topic)
+    sent = rand_str(200_000, string.printable)
+    await pub.publish(topic, sent)
+    received = await sub.get(.1)
     assert received == sent
 
 
-def test_unknown_command(service):
+async def test_unknown_command(service):
     client = service.get_client()
     with pytest.raises(ClientError):
-        client.send_command("UNKNOWN", "", "")
+        await client.send_command("UNKNOWN", "", "")
 
 
-def test_too_big(pub):
+async def test_too_big(pub: Client):
     with pytest.raises(MaxSizeOverflow):
-        pub.publish("topic", "A" * MAX_PACKET_SIZE + "A")
+        await pub.publish("topic", "A" * MAX_PACKET_SIZE + "A")
 
 
-def test_not_allowed_topic(pub):
+async def test_not_allowed_topic(pub: Client):
     with pytest.raises(TypeError):
-        pub.subscribe("topic:1")
+        await pub.subscribe("topic:1")
 
 
-def test_bytes_command(pub):
-    pub.subscribe("topic")
+async def test_bytes_command(pub: Client):
+    await pub.subscribe("topic")
     with pytest.raises(TypeError):
-        pub.send_command(CMD_PUB, b"topic", None)
+        await pub.send_command(CMD_PUB, b"topic", None)
 
 
-def test_publish_with_no_subs(pub, topic, data):
-    pub.publish(topic, data)  # nothing should happen
+async def test_publish_with_no_subs(pub: Client, topic, data):
+    await pub.publish(topic, data)
 
 
-def test_unsub_not_subscribed(pub, topic):
-    pub.unsubscribe(topic)
+async def test_unsub_not_subscribed(pub: Client, topic):
+    await pub.unsubscribe(topic)
 
 
-def test_receive_all(pub, service, topic):
-    sub = service.get_client()
-    sub.subscribe(topic)
+async def test_receive_all(pub: Client, service, topic):
+    sub = await started_client(service)
+    await sub.subscribe(topic)
 
     sent = [f"MSG{i}" for i in range(100)]
-    for msg in sent:
-        pub.publish(topic, msg)
+    await asyncio.wait([
+        pub.publish(topic, msg) for msg in sent
+    ])
 
-    time.sleep(.1)
+    await asyncio.sleep(.2)
 
     received = sub.get_all()
-    assert received == sent
+    assert sorted(received) == sorted(sent)
 
 
-def test_threaded_client(service, pub, topic, data):
+async def test_publish_not_started(service, topic, data, sub: Client):
+    pub = service.get_client()
+    await sub.subscribe(topic)
+
+    await pub.publish(topic, data)
+    received = await sub.get(.1)
+    assert received == data
+
+
+async def test_receive_not_started(service, topic, data, pub: Client):
     sub = service.get_client()
-    sub.subscribe(topic)
-    thr = Thread(target=sub.get_single, args=(.1,))
-    thr.start()
-    pub.publish(topic, data)
-    thr.join(.5)
+    await sub.subscribe(topic)
+
+    await pub.publish(topic, data)
+
+    with pytest.raises(ValueError):
+        await sub.get(.1)
+
+
+async def test_send_invalid_message(service, topic):
+    reader, writer = await asyncio.open_connection("localhost", service.port)
+    message = b"asdijhreawfe23"
+    writer.write(message)
+    await writer.drain()
+    response = await receive(reader)
+    assert response == b"Invalid message"
