@@ -1,6 +1,4 @@
-import socket
 import string
-import time
 
 import pytest
 
@@ -12,13 +10,6 @@ from tests.helpers import rand_str, started_client
 def service():
     srv = Service()
     srv.start()
-    sock = socket.socket(socket.AF_INET)
-    sock.settimeout(3)
-    time.sleep(0.5)
-    try:
-        sock.connect(("localhost", srv.port))
-    finally:
-        sock.close()
     yield srv
     srv.stop()
 

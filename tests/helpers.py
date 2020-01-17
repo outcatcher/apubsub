@@ -1,7 +1,5 @@
-import asyncio
 import random
 import string
-from typing import Callable, Coroutine
 
 from apubsub import Service
 

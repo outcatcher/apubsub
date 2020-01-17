@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import socket
+import time
 from multiprocessing import Event, Lock, Process, synchronize
 from typing import Dict, Set
 from uuid import uuid4
@@ -16,7 +17,7 @@ try:  # pragma: no cover
     import uvloop
 
     uvloop.install()
-except ImportError:   # pragma: no cover
+except ImportError:  # pragma: no cover
     pass
 
 LOGGER = logging.getLogger(__name__)
@@ -111,6 +112,10 @@ class Service:
         self.port = _random_port()
         self._service_p = Process(target=self._serve, args=(Service._stop,))
 
+    @property
+    def address(self):
+        return "localhost", self.port
+
     def get_client(self) -> Client:
         """Get new client instance for running server"""
         uuid = str(uuid4())
@@ -121,20 +126,22 @@ class Service:
 
     def _serve(self, stop_event):
         loop = asyncio.get_event_loop()
-        server = loop.run_until_complete(asyncio.start_server(self._handle_request, "localhost", self.port))
+        server = loop.run_until_complete(asyncio.start_server(self._handle_request, *self.address))
         LOGGER.debug("Server started")
         loop.run_until_complete(_wait_for_stop(server, stop_event))
 
     def start(self):
         """Start new service process"""
-
         self._stop.clear()
         self._service_p.start()
-        LOGGER.info("Service started on port %s", self.port)
+        time.sleep(.2)
+        with socket.socket(socket.AF_INET) as sock:
+            sock.settimeout(5)
+            sock.connect(self.address)
+        LOGGER.info("Service started on %s", self.address)
 
     def stop(self):
         """Stop running service process"""
-
         self._stop.set()
         self._service_p.join()
         LOGGER.info("Service process stopped")
@@ -143,6 +150,5 @@ class Service:
 async def _wait_for_stop(srv, event):
     while not event.is_set():
         await asyncio.sleep(.1)
-    if srv is not None:
-        srv.close()
-        await srv.wait_closed()
+    srv.close()
+    await srv.wait_closed()

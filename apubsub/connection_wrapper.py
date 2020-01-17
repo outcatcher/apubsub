@@ -33,7 +33,7 @@ async def receive(reader: asyncio.StreamReader) -> bytes:
         if reader.at_eof():
             raise NoData
     if first[:1] != MESSAGE_START:
-        raise NotMessage(f"No start bytes found. All data in reader: {await reader.read(1024)}")  # pragma: no cover
+        raise NotMessage(f"No start bytes found. All data in reader: {await reader.read(1024)}")
 
     size = int.from_bytes(await reader.readexactly(3), ENDIANNESS)
     body = await reader.readexactly(size)

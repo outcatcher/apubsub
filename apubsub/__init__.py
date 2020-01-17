@@ -9,3 +9,7 @@ LOGGER.setLevel(logging.DEBUG)
 STH = logging.StreamHandler()
 STH.setLevel(logging.DEBUG)
 LOGGER.addHandler(STH)
+
+FH = logging.FileHandler("apubsub.log")
+FH.setLevel(logging.DEBUG)
+LOGGER.addHandler(FH)
