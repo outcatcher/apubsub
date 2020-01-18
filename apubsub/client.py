@@ -47,10 +47,16 @@ class Client:
                              "Call client.start_consuming() first")
         return self.__data_queue
 
+    @property
+    def address(self):
+        return "localhost", self.port
+
     async def start_consuming(self):
         """Start TCP server receiving data from service"""
         self.__data_queue = Queue()
-        await asyncio.start_server(self._consume_input, "localhost", self.port)
+        await asyncio.start_server(self._consume_input, *self.address)
+        await asyncio.sleep(.05)
+        await asyncio.wait_for(asyncio.open_connection(*self.address), 3)
 
     async def _consume_input(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Process input connections"""
