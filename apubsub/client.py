@@ -49,7 +49,7 @@ class Client:
 
     @property
     def address(self):
-        return "localhost", self.port
+        return "127.0.0.1", self.port
 
     async def start_consuming(self):
         """Start TCP server receiving data from service"""
@@ -69,7 +69,7 @@ class Client:
     async def send_command(self, cmd, topic, data=None):
         """Send command to service"""
         message = command(cmd, topic, data)
-        reader, writer = await asyncio.open_connection("localhost", self.server_port)
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.server_port)
         try:
             await send(writer, message)
             resolution, response = parse_cmd_response(await receive(reader))

@@ -170,7 +170,7 @@ async def test_receive_not_started(service, topic, data, pub: Client):
 
 
 async def test_send_invalid_message(service, topic):
-    reader, writer = await asyncio.open_connection("localhost", service.port)
+    reader, writer = await asyncio.open_connection("127.0.0.1", service.port)
     message = b"asdijhreawfe23"
     writer.write(message)
     await writer.drain()

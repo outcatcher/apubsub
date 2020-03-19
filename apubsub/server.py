@@ -26,7 +26,7 @@ LOGGER.setLevel(logging.INFO)
 
 def _random_port():
     sock = socket.socket()
-    sock.bind(("localhost", 0))
+    sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
     sock.close()
     return port
@@ -34,7 +34,7 @@ def _random_port():
 
 async def _send_singe(port, data):
     try:
-        _, writer = await asyncio.open_connection("localhost", port)
+        _, writer = await asyncio.open_connection("127.0.0.1", port)
     except ConnectionError:
         LOGGER.exception(f"Failed to send data to client {port}")
         return
@@ -114,7 +114,7 @@ class Service:
 
     @property
     def address(self):
-        return "localhost", self.port
+        return "127.0.0.1", self.port
 
     def get_client(self) -> Client:
         """Get new client instance for running server"""
