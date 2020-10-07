@@ -15,7 +15,7 @@ jobs:
   - stage: test
     script:
     - poetry run pytest --cov-report xml --cov apubsub
-    - poetry run codecov
+    - bash <(curl -s https://codecov.io/bash)
   - stage: pypi
     name: Deploy to PyPi
     script: poetry publish --build -u $PYPI_USERNAME -p $PYPI_PASSWORD
