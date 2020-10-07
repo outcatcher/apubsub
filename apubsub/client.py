@@ -2,15 +2,15 @@ import asyncio
 import logging
 import re
 from asyncio import Queue
-from typing import List
+from typing import List, Union
 
 from .connection_wrapper import receive, send
-from .protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, ENDIANNESS, OK, UTF8, command, ok, parse_cmd_response
+from .protocol import CMD_PORT, CMD_PUB, CMD_SUB, CMD_UNSUB, ENDIANNESS, OK, UTF8, command, ok, parse_cmd_response
 
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 
-__all__ = ["ClientError", "Client"]
+__all__ = ["ClientError", "Client", "LOCALHOST"]
 
 
 class ClientError(Exception):
@@ -33,11 +33,11 @@ class Client:
     """Client for interacting with service"""
 
     _receiving: asyncio.Event
+    port: int = None
 
-    def __init__(self, server_port: int, client_port: int):
+    def __init__(self, server_port: int):
         self.__data_queue = None
         self.server_port = server_port
-        self.port = client_port
         self._receiving = asyncio.Event()
 
     @property
@@ -47,16 +47,13 @@ class Client:
                              "Call client.start_consuming() first")
         return self.__data_queue
 
-    @property
-    def address(self):
-        return "127.0.0.1", self.port
-
     async def start_consuming(self):
         """Start TCP server receiving data from service"""
         self.__data_queue = Queue()
-        await asyncio.start_server(self._consume_input, *self.address)
+        self.port = await self.get_port()
+        await asyncio.start_server(self._consume_input, LOCALHOST, self.port)
         await asyncio.sleep(.05)
-        await asyncio.wait_for(asyncio.open_connection(*self.address), 3)
+        await asyncio.wait_for(asyncio.open_connection(LOCALHOST, self.port), 3)
 
     async def _consume_input(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Process input connections"""
@@ -66,10 +63,10 @@ class Client:
         writer.close()
         await writer.wait_closed()
 
-    async def send_command(self, cmd, topic, data=None):
+    async def send_command(self, cmd, topic, data: Union[bytes, str] = ""):
         """Send command to service"""
         message = command(cmd, topic, data)
-        reader, writer = await asyncio.open_connection("127.0.0.1", self.server_port)
+        reader, writer = await asyncio.open_connection(LOCALHOST, self.server_port)
         try:
             await send(writer, message)
             resolution, response = parse_cmd_response(await receive(reader))
@@ -77,17 +74,26 @@ class Client:
                 raise ClientError(f"CMD failed with `{resolution.decode(UTF8)}`: `{response.data.decode(UTF8)}`")
             if cmd != response.command:
                 raise ClientError(f"Expected response to {cmd} command, got {response.command}")  # pragma: no cover
+            return response
         finally:
             writer.close()
             await writer.wait_closed()
 
+    async def get_port(self):
+        """Get port for the client"""
+        if self.port is None:
+            response = await self.send_command(CMD_PORT, "-")
+            self.port = int(response.topic.decode(UTF8))
+        return self.port
+
     async def publish(self, topic: str, data: str):
         """Publish data to service"""
+        await self.get_port()
         await self.send_command(CMD_PUB, topic, data)
 
     async def subscribe(self, topic: str):
         """Subscribe client to a topic"""
-
+        await self.get_port()
         if ALLOWED_TOPIC_RE.fullmatch(topic) is None:
             raise TypeError("Topic can be only ASCII letters")
         await self.send_command(CMD_SUB, topic, _port_to_bytes(self.port))
@@ -138,3 +144,6 @@ class Client:
     def stop_getting(self):
         """Stop async generator"""
         self._receiving.clear()
+
+
+LOCALHOST = "127.0.0.1"

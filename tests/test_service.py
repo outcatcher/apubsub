@@ -4,12 +4,19 @@ from typing import List
 
 import pytest
 
+from apubsub import Service
 from apubsub.client import Client, ClientError
 from apubsub.connection_wrapper import receive
 from apubsub.protocol import CMD_PUB, MAX_PACKET_SIZE, MaxSizeOverflow
 from tests.helpers import rand_str, started_client
 
 pytestmark = pytest.mark.asyncio
+
+
+async def test_get_port(pub: Client, service):
+    port = await pub.get_port()
+    assert isinstance(port, int)
+    assert service.port + 100 >= port >= service.port + 1
 
 
 async def test_simple_publish(pub: Client, sub: Client, topic, data, service):
@@ -176,3 +183,8 @@ async def test_send_invalid_message(service, topic):
     await writer.drain()
     response = await receive(reader)
     assert response == b"Invalid message"
+
+
+async def test_service_on_another_port(service):
+    srv2 = Service()
+    assert srv2.address != service.address[0], service.address[1] - 110

@@ -4,13 +4,14 @@ import asyncio
 import logging
 import socket
 import time
+from collections import deque
 from multiprocessing import Event, Lock, Process, synchronize
-from typing import Dict, Set
+from typing import Deque, Dict, Set
 from uuid import uuid4
 
-from .client import Client
+from .client import Client, LOCALHOST
 from .connection_wrapper import NoData, NotMessage, receive, send
-from .protocol import CMD_PUB, CMD_SUB, CMD_UNSUB, ENDIANNESS, UTF8, err, ok, parse_command
+from .protocol import CMD_PORT, CMD_PUB, CMD_SUB, CMD_UNSUB, ENDIANNESS, UTF8, err, ok, parse_command
 
 try:  # pragma: no cover
     # noinspection PyUnresolvedReferences
@@ -24,23 +25,26 @@ LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.INFO)
 
 
-def _random_port():
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    return port
-
-
 async def _send_singe(port, data):
     try:
-        _, writer = await asyncio.open_connection("127.0.0.1", port)
+        _, writer = await asyncio.open_connection(LOCALHOST, port)
     except ConnectionError:
         LOGGER.exception(f"Failed to send data to client {port}")
         return
     await send(writer, data)
     writer.close()
     await writer.wait_closed()
+
+
+def port_busy(port: int) -> bool:
+    """Check if someone is listening to the port"""
+    sock = socket.socket()
+    sock.settimeout(0.1)
+    try:
+        sock.connect((LOCALHOST, port))
+    except (ConnectionError, TimeoutError, socket.timeout):
+        return False
+    return True
 
 
 # noinspection PyBroadException
@@ -51,6 +55,8 @@ class Service:
     __run_lock: synchronize.SemLock = Lock()
     __topics: Dict[str, Set[int]]
     _service_p: Process
+    _allowed_ports: Deque[int]
+    port: int
 
     async def _handle_pub(self, topic: str, data: bytes):
         _ok = ok(CMD_PUB, topic)
@@ -76,6 +82,11 @@ class Service:
             pass
         return ok(CMD_UNSUB, topic)
 
+    def _handle_port(self):
+        port = self._allowed_ports.popleft()
+        self.__clients[str(uuid4())] = port
+        return ok(CMD_PORT, f"{port}")
+
     async def _handle_request(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         try:
             message = await receive(reader)
@@ -99,6 +110,8 @@ class Service:
             response = await self._handle_sub(topic, int.from_bytes(command.data, ENDIANNESS))
         elif command.command == CMD_UNSUB:
             response = await self._handle_unsub(topic, int.from_bytes(command.data, ENDIANNESS))
+        elif command.command == CMD_PORT:
+            response = self._handle_port()
         else:
             response = err(b"Unknown command", command.command)
         await send(writer, response)
@@ -109,19 +122,21 @@ class Service:
         """Create new service instance"""
         self.__clients = {}
         self.__topics = {}
-        self.port = _random_port()
+        port = 58608
+        client_start_port = port + 1
+        while port_busy(port):
+            port -= 110
+        self.port = port
+        self._allowed_ports = deque(range(client_start_port, client_start_port + 100))
         self._service_p = Process(target=self._serve, args=(Service._stop,))
 
     @property
     def address(self):
-        return "127.0.0.1", self.port
+        return LOCALHOST, self.port
 
     def get_client(self) -> Client:
         """Get new client instance for running server"""
-        uuid = str(uuid4())
-        client_port = _random_port()
-        client = Client(self.port, client_port)
-        self.__clients[uuid] = client_port
+        client = Client(self.port)
         return client
 
     def _serve(self, stop_event):

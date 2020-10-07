@@ -35,6 +35,8 @@ def _convert_to_bytes(*args: Iterable[AnyStr]) -> List[bytes]:
 
 # Requests from client to server
 
+CMD_PORT = b"PORT"
+CMD_RM_PORT = b"RMPORT"
 CMD_PUB = b"PUB"
 CMD_SUB = b"SUB"
 CMD_UNSUB = b"USUB"
