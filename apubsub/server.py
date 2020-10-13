@@ -118,15 +118,14 @@ class Service:
         writer.close()
         await writer.wait_closed()
 
-    def __init__(self):
+    def __init__(self, service_port=58608):
         """Create new service instance"""
         self.__clients = {}
         self.__topics = {}
-        port = 58608
-        client_start_port = port + 1
-        while port_busy(port):
-            port -= 110
-        self.port = port
+        while port_busy(service_port):
+            service_port -= 110
+        client_start_port = service_port + 1
+        self.port = service_port
         self._allowed_ports = deque(range(client_start_port, client_start_port + 100))
         self._service_p = Process(target=self._serve, args=(Service._stop,))
 
